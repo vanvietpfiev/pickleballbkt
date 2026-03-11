@@ -7,10 +7,15 @@ const App = {
         this.bindMobile();
         this.bindReset();
         this.bindQuickActions();
+        this.bindFirebaseConfig();
         this.updateDashboard();
         this.renderTab('dashboard');
 
-        Store.onAny(() => this.updateDashboard());
+        // Re-render when Firebase syncs data from cloud
+        Store.onAny((key) => {
+            this.updateDashboard();
+            if (key === 'sync') this.renderTab(this.currentTab);
+        });
     },
 
     bindNav() {
@@ -235,6 +240,66 @@ const App = {
 
     closeModal() {
         H.$('#modal-overlay').style.display = 'none';
+    },
+
+    // ===== Google Apps Script Cloud Config =====
+    bindFirebaseConfig() {
+        H.$('#btn-firebase-config')?.addEventListener('click', () => this.showCloudConfigModal());
+    },
+
+    showCloudConfigModal() {
+        const savedUrl = localStorage.getItem('vna_apps_script_url') || '';
+        const isConnected = Store.isCloudConnected();
+        App.showModal('☁️ Kết Nối Cloud (Google Sheet)', `
+            <div style="margin-bottom:var(--space-3)">
+                <div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-3)">
+                    <span style="font-size:24px">📊</span>
+                    <div>
+                        <p style="font-size:var(--fs-sm);font-weight:var(--fw-semibold)">Đồng bộ qua Google Sheet</p>
+                        <p style="font-size:var(--fs-xs);color:${isConnected ? 'var(--success)' : 'var(--text-muted)'}">${isConnected ? '🟢 Đã kết nối' : '⚪ Chưa kết nối'}</p>
+                    </div>
+                </div>
+                <div style="background:rgba(0,0,0,0.2);border-radius:var(--radius-md);padding:var(--space-3);font-size:var(--fs-xs);color:var(--text-secondary)">
+                    <p style="color:var(--accent);font-weight:var(--fw-semibold);margin-bottom:var(--space-2)">Hướng dẫn (chỉ làm 1 lần):</p>
+                    <p>1. Mở Google Sheet bất kỳ → <strong>Extensions → Apps Script</strong></p>
+                    <p>2. Xóa code mặc định, dán code từ file <strong>google_apps_script.js</strong></p>
+                    <p>3. <strong>Deploy → New deployment</strong></p>
+                    <p>&nbsp;&nbsp;&nbsp;→ Type: <strong>Web app</strong></p>
+                    <p>&nbsp;&nbsp;&nbsp;→ Execute as: <strong>Me</strong></p>
+                    <p>&nbsp;&nbsp;&nbsp;→ Who has access: <strong>Anyone</strong></p>
+                    <p>4. Copy URL deployment → dán vào bên dưới</p>
+                    <p style="margin-top:var(--space-2);color:var(--success)">✅ 100% miễn phí, không giới hạn!</p>
+                </div>
+            </div>
+            <div class="input-group"><label>URL Google Apps Script</label>
+                <input class="input" id="gas-url" placeholder="https://script.google.com/macros/s/.../exec" value="${savedUrl}"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="modal-cancel">Hủy</button>
+                ${isConnected ? '<button class="btn btn-secondary" id="btn-sync-now">↻ Đồng bộ ngay</button>' : ''}
+                <button class="btn btn-primary" id="modal-save">${isConnected ? 'Cập Nhật' : 'Kết Nối'}</button>
+            </div>
+        `);
+        H.$('#modal-cancel').onclick = () => App.closeModal();
+        H.$('#btn-sync-now')?.addEventListener('click', async () => {
+            H.toast('Đang đồng bộ...', 'info');
+            await Store.syncNow();
+            App.closeModal();
+            this.renderTab(this.currentTab);
+            H.toast('📡 Đã đồng bộ dữ liệu!', 'success');
+        });
+        H.$('#modal-save').onclick = async () => {
+            const url = H.$('#gas-url').value.trim();
+            if (!url || !url.includes('script.google.com')) {
+                H.toast('URL không hợp lệ. Phải là link script.google.com', 'warning');
+                return;
+            }
+            Store.setApiUrl(url);
+            H.toast('☁️ Đang kết nối...', 'info');
+            // Push current data to cloud
+            await Store._saveCloud();
+            App.closeModal();
+            H.toast('✅ Đã kết nối & đồng bộ lên Google Sheet!', 'success');
+        };
     }
 };
 
